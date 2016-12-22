@@ -1,0 +1,242 @@
+---
+title: "Multivariable Regression Analysis"
+author: "Anthony Contoleon"
+date: "21 December 2016"
+output: github_document
+---
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Multiple Regression Analysis.
+
+# Personal prefered general packages
+library(data.table)
+library(ggplot2)
+library(DescTools)
+
+# Analysis packages
+library(car)
+library(gvlma)
+library(MASS)
+library(QuantPsyc)
+library(Hmisc)
+library(corrplot)
+library(GGally)
+library(lm.beta)
+
+## Create a matrix for correlations and significance
+## Based on output from rcorr
+flattenCorrMatrix <- function(cormat, pmat, nmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut],
+    n = nmat[ut]
+  )
+}
+
+## Some Code as per http://www.statmethods.net/stats/regression.html
+## Some Code as per http://www.statmethods.net/stats/rdiagnostics.html
+
+## Loading the IRIS file as an example.
+load.file <- iris
+
+# Convert the required factor column to numeric for use in cor analysis.
+iris.df <- load.file
+irisTrim.df <- iris.df[sapply(iris.df, is.numeric)]
+irisTrim.df <- irisTrim.df[complete.cases(irisTrim.df),]
+
+```
+
+The following Multiple linear regression work flow is based on the process demonstrated as a part of Swinburne University of Technology's Advanced Topics in Regression subject in 2016 taught using SPSS and replicated to R.
+
+## Data Exploration
+
+Initial exploration of the data set prior to working with it.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Exploration of the data 
+summary(irisTrim.df)
+describe(irisTrim.df)
+
+```
+
+### Correlation Matrix & Significance
+
+Creating a table of correlations with significance values included.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Correlation plot with significance
+## Will only return pairwise complete correlations and significance.
+irisTrim.ma <- sapply(irisTrim.df, as.numeric)
+irisTrim.df <- as.data.frame(sapply(irisTrim.df, as.numeric))
+corMatrix <- rcorr(irisTrim.ma, type = "pearson")
+flattenCorrMatrix(corMatrix$r, corMatrix$P, corMatrix$n)
+
+```
+
+### Correlation Matrix Plot
+
+Plotting the correlations between variables in the data with distributions included.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+# Correlation matrix and scatter plots.
+ggpairs(irisTrim.df)
+
+```
+
+## Fitting the Model
+
+Fit the multivariable model and returning the coefficients, R squared and adjusted R squared.
+
+```{r, message=FALSE,warning=FALSE}
+# Basic linear Model
+fit <- lm(Sepal.Length~Sepal.Width+Petal.Length+Petal.Width, data = irisTrim.df)
+
+# Multiple R-squared
+# Returns unstandardised coefficients
+summary(fit)
+
+```
+
+### Confidence Intervals for Coefficients
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Returns the 95% CI for the coefficients.
+# CIs for model parameters
+cbind(summary(fit)$coefficients, confint(fit, level = 0.95)) 
+```
+
+### Standardised Parametre Estimates
+
+Contributions by variable values to dimensions.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+# Produce the standardised parametre estimates.
+lm.beta(fit)
+```
+
+## Assumption Testing
+
+### Durbin Watson test
+
+A table of critical values can be found at the following location: [Durbin Watson Critical Values](http://web.stanford.edu/~clint/bench/dw05c.htm).
+In the following table k = number predictors, K=number coefficients including intercept.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Durbin Watson test.
+# Critical values: http://web.stanford.edu/~clint/bench/dw05c.htm
+# k = number predictors, K=number coefficients including intercept
+# Test for Autocorrelated Errors
+durbinWatsonTest(fit)
+```
+
+### Partial Correlation Statistics
+
+Contributions by observation to dimensions.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Partial correlation statistics relevant to the model.
+# http://comisef.wikidot.com/tip:partialcorrelation
+t.values <- fit$coeff / sqrt(diag(vcov(fit)))
+partcorr <- sqrt((t.values^2)/((t.values^2)+fit$df.residual))
+partcorr
+```
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Anova table 
+# Checking predictors for linear relationship with dependent variable.
+anova(fit) 
+```
+
+### Multicollinearity 
+
+Produce a table of Variance inflation factors and Tolerance figures for assessment. The output changes based on the data. In models where generalized variance-inflation figures are calculated, the VIF figures can be accessed as: `vif(fit)[,1]`. Where it is not, `vif(fit)` is appropriate.
+
+```{r, message=FALSE,warning=FALSE}
+## Evaluate MultiCollinearity
+# variance inflation factors and Tolerance
+multi.df <- cbind(vif(fit), 1/vif(fit), sqrt(vif(fit)) > 2, 1/vif(fit) > 0.3)
+colnames(multi.df) <- c("VIF", "Tolerance", "VIF > 2", "Tolerance > 0.3")
+multi.df
+
+```
+
+### Studentised Residuals
+
+Review the range and distribution of Studentised residuals for the model. The values should fall between -3 and 3 assuming there are no issues with outliers.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Review residuals
+# distribution of studentized residuals
+sresid <- studres(fit) 
+
+## Studentized residuals range
+# Falls between -3, 3
+minStr <- min(sresid)
+maxStr <- max(sresid)
+```
+
+### Plot the Distribution of Studentised Residuals
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+# Plot distribution of studentized residuals.
+hist(sresid, freq=FALSE, 
+     main=paste("Distribution of Studentized Residuals\nRange = ", round(minStr, d = 2), "-", round(maxStr, d = 2), sep = " "))
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+```
+
+### Mahalanobis Distance
+
+Maximum and minumum Mahalanobis Distance of the model. Values need to be under the critical value: [Mahalanobis Distance Critical Values](https://en.wikiversity.org/wiki/Mahalanobis'_distance)
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Maximum Mahalanobis Distance
+covMa <- cov(na.omit(irisTrim.df))
+mahalanobisDist <- mahalanobis(na.omit(irisTrim.df), colMeans(na.omit(irisTrim.df)), covMa)
+min(na.omit(mahalanobisDist))
+max(na.omit(mahalanobisDist))
+```
+
+### Influential Points
+
+Review influential points as per Cook's D, Studentised residuals 
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Influential values plot
+# Another lot of plots
+infIndexPlot(fit, vars=c("Cook", "Studentized", "Bonf", "hat"), main = "Diagnostic Plots",  id.method = cooks.distance(fit), id.n = 4)
+```
+
+### Normality and Linearity 
+
+Review residual plots for the assumptions of normality are valid.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Residual plots
+# Diagnostic plots 
+layout(matrix(c(1,2,3,4),2,2)) # optional 4 graphs/page 
+plot(fit)
+layout(1,1,1)
+```
+
+### Partial Regression Plots
+
+Partial plots to be reviewed to assess assumptions of linearity.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Partial regression plots.
+avPlots(fit)
+```
+
+### Model with Skew and Kurtosis.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+## Global test of model assumptions
+# Including Skew and Kurtosis.
+gvmodel <- gvlma(fit) 
+summary(gvmodel)
+```
